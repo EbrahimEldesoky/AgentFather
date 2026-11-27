@@ -59,9 +59,12 @@ async fn main() {
         // WhatsApp OTP Verification
         .route("/api/whatsapp/request-otp", post(whatsapp::request_otp_handler))
         .route("/api/whatsapp/verify-otp", post(whatsapp::verify_otp_handler))
-        // Agent Chat
+        // Agent Chat & Sessions
         .route("/api/chat", post(chat::chat_handler))
         .route("/api/chat/history", get(chat::chat_history_handler))
+        .route("/api/chat/sessions", get(chat::list_sessions_handler))
+        .route("/api/chat/sessions", post(chat::create_session_handler))
+        .route("/api/chat/sessions/{id}", delete(chat::delete_session_handler))
         // Sub-Agents
         .route("/api/sub-agents", get(chat::list_subagents_handler))
         .route("/api/sub-agents", post(chat::create_subagent_handler))
