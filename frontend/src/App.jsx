@@ -20,7 +20,7 @@ const COPY = {
     navPricing: 'Pricing',
     navStatus: 'Status',
     navDash: 'Dashboard',
-    login: 'Log In',
+    login: 'Sign In',
     signup: 'Sign Up',
     logout: 'Log Out',
     subtitle: 'Your personal AI executive agent — connecting your tools and executing tasks across WhatsApp and the web.',
@@ -833,12 +833,8 @@ export default function App() {
   const t = COPY[lang];
 
   const [page, setPage] = useState(() => {
-    // If token exists in storage, start at home (will redirect to dashboard via useEffect)
-    // Otherwise show the signin landing page directly
-    const stored = localStorage.getItem('af_token');
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlToken = urlParams.get('token');
-    return (stored || urlToken) ? 'home' : 'signin';
+    // Start on home page always; useEffect will redirect to dashboard if token is valid
+    return 'home';
   });
 
   const [token, setToken] = useState(() => {
@@ -969,7 +965,7 @@ export default function App() {
     setSubAgents([]);
     setSessions([]);
     setActiveSessionId('');
-    setPage('signin');
+    setPage('home');
   }
 
   async function refreshSubAgents() {
@@ -1895,158 +1891,6 @@ export default function App() {
             )}
           </div>
         </section>
-      )}
-
-      {/* ── SIGNIN PAGE (shown to unauthenticated visitors) ── */}
-      {page === 'signin' && (
-        <div
-          style={{
-            minHeight: '100vh',
-            background: 'var(--bg-pure-black)',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '24px 16px',
-          }}
-        >
-          {/* Logo + Title */}
-          <div style={{ textAlign: 'center', marginBottom: '36px' }}>
-            <h1 style={{ fontSize: '1.6rem', fontWeight: 900, letterSpacing: '0.04em', marginBottom: 10 }}>
-              AGENT FATHER
-            </h1>
-            <p style={{ fontSize: '0.88rem', color: 'var(--highlight-silver)', maxWidth: 380, lineHeight: 1.6 }}>
-              {t.signinSub}
-            </p>
-          </div>
-
-          {/* Card */}
-          <div
-            style={{
-              width: '100%',
-              maxWidth: 420,
-              background: 'var(--surface-charcoal)',
-              border: '1px solid var(--gray-dark)',
-              borderRadius: 12,
-              padding: '32px 28px',
-            }}
-          >
-            {/* Tabs: Log In / Create Account */}
-            <div style={{ display: 'flex', borderBottom: '1px solid var(--gray-dark)', marginBottom: 24 }}>
-              {[
-                { key: 'login', label: t.signinLoginTab },
-                { key: 'signup', label: t.signinSignupTab },
-              ].map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => { setAuthModal(tab.key); setAuthMsg(''); }}
-                  style={{
-                    flex: 1,
-                    padding: '10px 0',
-                    background: 'none',
-                    border: 'none',
-                    borderBottom: `2px solid ${(authModal || 'login') === tab.key ? 'var(--accent-red-primary)' : 'transparent'}`,
-                    color: (authModal || 'login') === tab.key ? 'var(--text-white)' : 'var(--highlight-silver)',
-                    fontWeight: (authModal || 'login') === tab.key ? 700 : 500,
-                    fontSize: '0.9rem',
-                    cursor: 'pointer',
-                    marginBottom: -1,
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            <form
-              className="form-stack"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                setAuthMsg('');
-                const mode = authModal || 'login';
-                const endpoint = mode === 'signup' ? '/api/auth/signup' : '/api/auth/login';
-                try {
-                  const res = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(authForm),
-                  });
-                  const data = await res.json();
-                  if (!res.ok) { setAuthMsg(data.error || 'Authentication failed'); return; }
-                  localStorage.setItem('af_token', data.token);
-                  setToken(data.token);
-                  setUser(data.user);
-                  setAuthModal(null);
-                  setAuthForm({ name: '', email: '', password: '' });
-                  setPage('dashboard');
-                  setDashTab('workspace');
-                } catch {
-                  setAuthMsg('Network error');
-                }
-              }}
-            >
-              {(authModal || 'login') === 'signup' && (
-                <input
-                  className="input"
-                  placeholder={t.signinName}
-                  value={authForm.name}
-                  onChange={(e) => setAuthForm({ ...authForm, name: e.target.value })}
-                  required
-                />
-              )}
-              <input
-                className="input"
-                type="text"
-                placeholder={t.signinUser}
-                value={authForm.email}
-                onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })}
-                required
-              />
-              <input
-                className="input"
-                type="password"
-                placeholder={t.signinPass}
-                value={authForm.password}
-                onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })}
-                required
-              />
-              <button className="btn btn-primary" type="submit" style={{ width: '100%', marginTop: 4 }}>
-                {(authModal || 'login') === 'signup' ? t.signinSignupTab : t.signinLoginTab}
-              </button>
-            </form>
-
-            {authMsg && <div className="status-banner err" style={{ marginTop: 12 }}>{authMsg}</div>}
-
-            {/* Language switcher */}
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 4, marginTop: 24 }}>
-              {['en', 'fr', 'ar'].map((code) => (
-                <button
-                  key={code}
-                  type="button"
-                  onClick={() => setLang(code)}
-                  style={{
-                    padding: '4px 10px',
-                    fontSize: '0.72rem',
-                    fontWeight: lang === code ? 700 : 400,
-                    background: lang === code ? 'var(--accent-red-primary)' : 'transparent',
-                    color: lang === code ? 'var(--text-white)' : 'var(--highlight-silver)',
-                    border: '1px solid var(--gray-dark)',
-                    borderRadius: 4,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {code.toUpperCase()}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <p style={{ marginTop: 20, fontSize: '0.75rem', color: 'var(--gray-light)' }}>
-            © 2026 Agent Father
-          </p>
-        </div>
       )}
 
       {/* Footer */}
