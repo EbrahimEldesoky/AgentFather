@@ -745,11 +745,24 @@ function IntegrationCategories({ t, verifiedWa, onWaClick }) {
 export default function App() {
   // Default language is ALWAYS English ('en'), followed by French ('fr'), then Arabic ('ar')
   const [lang, setLang] = useState('en');
+  const langRef = useRef(lang);
+  useEffect(() => {
+    langRef.current = lang;
+  }, [lang]);
   const t = COPY[lang];
 
   const [page, setPage] = useState('home');
 
-  const [token, setToken] = useState(() => localStorage.getItem('af_token') || '');
+  const [token, setToken] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get('token');
+    if (urlToken) {
+      localStorage.setItem('af_token', urlToken);
+      window.history.replaceState({}, '', '/');
+      return urlToken;
+    }
+    return localStorage.getItem('af_token') || '';
+  });
   const [user, setUser] = useState(null);
   const [authModal, setAuthModal] = useState(null);
   const [authForm, setAuthForm] = useState({ name: '', email: '', password: '' });
@@ -786,22 +799,7 @@ export default function App() {
   }, [messages, dashTab, page]);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const urlToken = params.get('token');
-    if (urlToken) {
-      localStorage.setItem('af_token', urlToken);
-      setToken(urlToken);
-      window.history.replaceState({}, '', '/');
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!token) {
-      setUser(null);
-      setVerifiedWa('');
-      setMessages([{ role: 'agent', text: COPY[lang].greeting }]);
-      return;
-    }
+    if (!token) return;
     fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => {
@@ -814,7 +812,7 @@ export default function App() {
             if (hd?.messages && hd.messages.length > 0) {
               setMessages(hd.messages);
             } else {
-              setMessages([{ role: 'agent', text: COPY[lang].greeting }]);
+              setMessages([{ role: 'agent', text: COPY[langRef.current].greeting }]);
             }
           })
           .catch(() => {});

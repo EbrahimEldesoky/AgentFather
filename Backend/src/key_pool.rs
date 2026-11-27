@@ -27,7 +27,9 @@ const DEFAULT_GROQ_KEYS: &[&str] = &[];
 // ─── Groq TTS models: Arabic + English auto-detect ─────────────────────────
 // Arabic text → canopylabs/orpheus-arabic-saudi
 // English/mixed → canopylabs/orpheus-v1-english  (fallback: gemini tts)
+#[allow(dead_code)]
 const GROQ_TTS_MODEL_AR: &str = "canopylabs/orpheus-arabic-saudi";
+#[allow(dead_code)]
 const GROQ_TTS_MODEL_EN: &str = "canopylabs/orpheus-v1-english";
 
 // ─── KeySlot ───────────────────────────────────────────────────────────────
@@ -65,6 +67,7 @@ pub struct KeyPool {
     client: reqwest::Client,
     // separate Groq pool for TTS
     groq_slots: RwLock<Vec<KeySlot>>,
+    #[allow(dead_code)]
     groq_cursor: AtomicUsize,
     thought_signatures: RwLock<std::collections::HashMap<String, String>>,
 }
@@ -171,6 +174,7 @@ impl KeyPool {
     }
 
     // ── Groq key picker ──
+    #[allow(dead_code)]
     async fn pick_groq_key(&self) -> (usize, String) {
         let now = Instant::now();
         let slots = self.groq_slots.read().await;
@@ -192,6 +196,7 @@ impl KeyPool {
         (best, slots[best].key.clone())
     }
 
+    #[allow(dead_code)]
     async fn mark_groq_ok(&self, idx: usize) {
         let mut slots = self.groq_slots.write().await;
         if let Some(s) = slots.get_mut(idx) {
@@ -201,6 +206,7 @@ impl KeyPool {
         }
     }
 
+    #[allow(dead_code)]
     async fn mark_groq_rotate(&self, idx: usize, status: u16, cooldown_secs: u64) {
         let mut slots = self.groq_slots.write().await;
         if let Some(s) = slots.get_mut(idx) {
@@ -326,6 +332,7 @@ impl KeyPool {
     }
 
     // ── Groq TTS attempt (all keys) ──
+    #[allow(dead_code)]
     async fn try_groq_tts(&self, text: &str) -> Result<Vec<u8>, String> {
         let n = self.groq_slots.read().await.len();
         let mut last_err = String::from("All Groq TTS keys exhausted");
@@ -461,6 +468,7 @@ impl KeyPool {
 }
 
 // ── ffmpeg: MP3 → OGG Opus (for WhatsApp) ─────────────────────────────────
+#[allow(dead_code)]
 async fn convert_mp3_to_ogg(mp3_bytes: &[u8]) -> Result<Vec<u8>, String> {
     let mp3_tmp = format!("/tmp/af_tts_{}.mp3", uuid::Uuid::new_v4());
     let ogg_tmp = format!("/tmp/af_tts_{}.ogg", uuid::Uuid::new_v4());
