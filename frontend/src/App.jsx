@@ -1320,7 +1320,6 @@ export default function App() {
       <header className="navbar">
         <div className="container navbar-inner">
           <a href="#" className="brand" onClick={(e) => { e.preventDefault(); setPage('home'); }}>
-            <img src="/brand-assets/logo.png" alt="Agent Father" />
             <span>AGENT FATHER</span>
           </a>
 
@@ -1472,12 +1471,13 @@ export default function App() {
               </p>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px', maxWidth: '960px', margin: '0 auto' }}>
-              {t.plans.map((plan) => (
+              {/* Starter — Free, fully active */}
+              {t.plans.filter((p) => !p.highlight && p.price !== 'Custom' && p.price !== 'مخصص' && p.price !== 'Sur mesure').map((plan) => (
                 <div
                   key={plan.name}
                   style={{
                     background: 'var(--surface-charcoal)',
-                    border: `1px solid ${plan.highlight ? 'var(--accent-red-bright)' : 'var(--gray-dark)'}`,
+                    border: '1px solid var(--gray-dark)',
                     padding: '28px',
                     borderRadius: '6px',
                     display: 'flex',
@@ -1495,15 +1495,77 @@ export default function App() {
                       {plan.features.map((f) => <li key={f}>• {f}</li>)}
                     </ul>
                   </div>
-                  <button
-                    type="button"
-                    className={`btn ${plan.highlight ? 'btn-primary' : 'btn-ghost'}`}
-                    onClick={() => openDashboardOrLogin('chat')}
-                  >
+                  <button type="button" className="btn btn-ghost" onClick={() => openDashboardOrLogin('chat')}>
                     {t.getStarted}
                   </button>
                 </div>
               ))}
+
+              {/* Pro — Coming Soon */}
+              <div
+                style={{
+                  background: 'var(--surface-charcoal)',
+                  border: '1px solid var(--gray-dark)',
+                  padding: '28px',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  gap: '20px',
+                  opacity: 0.75,
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}
+              >
+                <div style={{ position: 'absolute', top: 14, right: 14, padding: '3px 10px', borderRadius: '20px', background: 'rgba(220,38,38,0.16)', border: '1px solid var(--accent-red-primary)', color: 'var(--accent-red-bright)', fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.08em' }}>
+                  {t.soon}
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '12px' }}>Pro</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 800, marginBottom: '18px', color: 'var(--highlight-silver)' }}>
+                    — <span style={{ fontSize: '0.85rem', fontWeight: 400 }}></span>
+                  </div>
+                  <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.88rem', color: 'var(--gray-light)' }}>
+                    {t.plans.find((p) => p.highlight)?.features.map((f) => <li key={f}>• {f}</li>)}
+                  </ul>
+                </div>
+                <button type="button" className="btn btn-ghost" disabled style={{ opacity: 0.5, cursor: 'default' }}>
+                  {t.soon}
+                </button>
+              </div>
+
+              {/* Enterprise — Coming Soon */}
+              <div
+                style={{
+                  background: 'var(--surface-charcoal)',
+                  border: '1px solid var(--gray-dark)',
+                  padding: '28px',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  gap: '20px',
+                  opacity: 0.75,
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}
+              >
+                <div style={{ position: 'absolute', top: 14, right: 14, padding: '3px 10px', borderRadius: '20px', background: 'rgba(220,38,38,0.16)', border: '1px solid var(--accent-red-primary)', color: 'var(--accent-red-bright)', fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.08em' }}>
+                  {t.soon}
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '12px' }}>Enterprise</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 800, marginBottom: '18px', color: 'var(--highlight-silver)' }}>
+                    —
+                  </div>
+                  <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.88rem', color: 'var(--gray-light)' }}>
+                    {t.plans.find((p) => !p.highlight && (p.price === 'Custom' || p.price === 'مخصص' || p.price === 'Sur mesure'))?.features.map((f) => <li key={f}>• {f}</li>)}
+                  </ul>
+                </div>
+                <button type="button" className="btn btn-ghost" disabled style={{ opacity: 0.5, cursor: 'default' }}>
+                  {t.soon}
+                </button>
+              </div>
             </div>
           </div>
         </section>
@@ -1850,7 +1912,6 @@ export default function App() {
         >
           {/* Logo + Title */}
           <div style={{ textAlign: 'center', marginBottom: '36px' }}>
-            <img src="/brand-assets/logo.png" alt="Agent Father" style={{ width: 60, height: 60, marginBottom: 16 }} />
             <h1 style={{ fontSize: '1.6rem', fontWeight: 900, letterSpacing: '0.04em', marginBottom: 10 }}>
               AGENT FATHER
             </h1>
@@ -1992,7 +2053,6 @@ export default function App() {
       <footer className="footer">
         <div className="container footer-inner">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <img src="/brand-assets/logo.png" alt="Logo" width={22} height={22} />
             <span>AGENT FATHER</span>
           </div>
           <span>© 2026 Agent Father</span>
