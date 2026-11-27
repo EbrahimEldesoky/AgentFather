@@ -20,6 +20,12 @@ pub struct ChatReq {
 }
 
 #[derive(Deserialize)]
+pub struct TranscribeReq {
+    pub audio_base64: String,
+    pub mime_type: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct CreateSubAgentReq {
     pub name: String,
     pub role: String,
@@ -957,4 +963,63 @@ pub async fn chat_handler(
             "agent_updated": agent_updated,
         })),
     )
+}
+
+pub async fn transcribe_audio_handler(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<TranscribeReq>,
+) -> impl IntoResponse {
+    if extract_claims(&headers).is_none() {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Authentication required"})),
+        );
+    }
+    if req.audio_base64.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Empty audio payload"})),
+        );
+    }
+
+    let mime = req
+        .mime_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("audio/webm");
+
+    let body = json!({
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {
+                    "text": "Transcribe this spoken audio accurately in its original language (Arabic, French, or English). Output ONLY the transcribed text with no quotes or commentary."
+                },
+                {
+                    "inlineData": {
+                        "mimeType": mime,
+                        "data": req.audio_base64.trim()
+                    }
+                }
+            ]
+        }]
+    });
+
+    match state
+        .key_pool
+        .generate_content("gemini-2.5-flash", &body)
+        .await
+    {
+        Ok(v) => {
+            let text = v["candidates"][0]["content"]["parts"][0]["text"]
+                .as_str()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            (StatusCode::OK, Json(json!({ "text": text })))
+        }
+        Err((status, err)) => (status, Json(json!({ "error": err }))),
+    }
 }
