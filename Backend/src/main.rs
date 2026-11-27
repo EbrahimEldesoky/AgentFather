@@ -5,7 +5,7 @@ mod key_pool;
 mod whatsapp;
 
 use axum::{
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use serde_json::json;
@@ -69,7 +69,9 @@ async fn main() {
         // Sub-Agents
         .route("/api/sub-agents", get(chat::list_subagents_handler))
         .route("/api/sub-agents", post(chat::create_subagent_handler))
+        .route("/api/sub-agents/{id}", put(chat::update_subagent_handler))
         .route("/api/sub-agents/{id}", delete(chat::delete_subagent_handler))
+        .route("/api/sub-agents/{id}/share", post(chat::share_subagent_handler))
         // Internal OpenAI-compatible rotating proxy & TTS for Hermes Agent
         .route("/internal/llm/v1/models", get(key_pool::openai_models_handler))
         .route(

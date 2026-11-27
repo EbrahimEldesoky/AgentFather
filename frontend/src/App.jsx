@@ -83,6 +83,12 @@ const COPY = {
     skillsLabel: 'Skills',
     helpersLabel: 'Helpers',
     profileLabel: 'Isolated Profile',
+    shareBtn: 'SHARE',
+    shareTitle: 'Share Agent on WhatsApp',
+    shareDesc: 'Enter a WhatsApp number. This agent will send a text & voice introduction explaining its capabilities.',
+    shareSend: 'Send Intro & Voice Note',
+    editPromptTitle: 'System Prompt',
+    savePrompt: 'Save Changes',
     nameLabel: 'Name:',
     emailLabel: 'Email / ID:',
     isolationNote: 'Your account data and agent memory are strictly isolated from other users.',
@@ -198,6 +204,12 @@ const COPY = {
     skillsLabel: 'Compétences',
     helpersLabel: 'Sous-agents',
     profileLabel: 'Profil isolé',
+    shareBtn: 'SHARE',
+    shareTitle: 'Partager sur WhatsApp',
+    shareDesc: 'Entrez un numéro WhatsApp. Cet agent enverra une présentation texte et vocale.',
+    shareSend: 'Envoyer présentation',
+    editPromptTitle: 'Prompt Système',
+    savePrompt: 'Enregistrer',
     nameLabel: 'Nom :',
     emailLabel: 'E-mail / ID :',
     isolationNote: 'Vos données et la mémoire de votre agent sont strictement isolées des autres utilisateurs.',
@@ -313,6 +325,12 @@ const COPY = {
     skillsLabel: 'المهارات',
     helpersLabel: 'الوكلاء المساعدون',
     profileLabel: 'بروفايل معزول',
+    shareBtn: 'SHARE',
+    shareTitle: 'مشاركة الوكيل عبر واتساب',
+    shareDesc: 'أدخل كود الدولة ورقم الواتساب، وسيرسل الوكيل رسالة تعريفية وريكورد صوتي يشرح فيه مهاراته وكيف يمكنه المساعدة.',
+    shareSend: 'إرسال الرسالة والريكورد',
+    editPromptTitle: 'تعديل System Prompt',
+    savePrompt: 'حفظ التعديلات',
     nameLabel: 'الاسم:',
     emailLabel: 'البريد / المعرف:',
     isolationNote: 'بياناتك ومحادثاتك معزولة تماماً عن بقية المستخدمين.',
@@ -799,9 +817,19 @@ export default function App() {
 
   // Sub-agents (Workspace) & Chat Sessions
   const [subAgents, setSubAgents] = useState([]);
-  const [activeSubAgent, setActiveSubAgent] = useState(null); // null = main Agent Father
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState('');
+
+  // Edit Prompt Modal
+  const [editAgent, setEditAgent] = useState(null);
+  const [editBusy, setEditBusy] = useState(false);
+
+  // Share Agent Modal
+  const [shareAgent, setShareAgent] = useState(null);
+  const [shareCountryCode, setShareCountryCode] = useState('+20');
+  const [sharePhone, setSharePhone] = useState('');
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareFeedback, setShareFeedback] = useState(null);
 
   // WhatsApp OTP Modal
   const [waModalOpen, setWaModalOpen] = useState(false);
@@ -896,7 +924,6 @@ export default function App() {
     setVerifiedWa('');
     setMessages([{ role: 'agent', text: t.greeting }]);
     setSubAgents([]);
-    setActiveSubAgent(null);
     setSessions([]);
     setActiveSessionId('');
     setPage('home');
@@ -929,7 +956,7 @@ export default function App() {
     }
   }
 
-  async function selectSession(sid, saObj = activeSubAgent) {
+  async function selectSession(sid) {
     setActiveSessionId(sid);
     if (!token) return;
     try {
@@ -941,7 +968,7 @@ export default function App() {
         if (d.messages && d.messages.length > 0) {
           setMessages(d.messages);
         } else {
-          setMessages([{ role: 'agent', text: saObj ? `${t.chatWithAgent}: ${saObj.name}` : t.greeting }]);
+          setMessages([{ role: 'agent', text: t.greeting }]);
         }
       }
     } catch {
@@ -949,20 +976,20 @@ export default function App() {
     }
   }
 
-  async function handleNewSession(saObj = activeSubAgent) {
+  async function handleNewSession() {
     if (!token) return;
     try {
       const r = await fetch('/api/chat/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ title: t.newSession, sub_agent_id: saObj?.id || null }),
+        body: JSON.stringify({ title: t.newSession }),
       });
       if (r.ok) {
         const d = await r.json();
         if (d.session) {
           setSessions((prev) => [d.session, ...prev]);
           setActiveSessionId(d.session.id);
-          setMessages([{ role: 'agent', text: saObj ? `${t.chatWithAgent}: ${saObj.name}` : t.greeting }]);
+          setMessages([{ role: 'agent', text: t.greeting }]);
         }
       }
     } catch {
@@ -980,20 +1007,66 @@ export default function App() {
       setSessions((prev) => prev.filter((s) => s.id !== sid));
       if (activeSessionId === sid) {
         setActiveSessionId('');
-        setMessages([{ role: 'agent', text: activeSubAgent ? `${t.chatWithAgent}: ${activeSubAgent.name}` : t.greeting }]);
+        setMessages([{ role: 'agent', text: t.greeting }]);
       }
     } catch {
       // ignore
     }
   }
 
-  function openAgentChat(sa, prefill = '') {
-    setActiveSubAgent(sa);
-    setActiveSessionId('');
-    setMessages([{ role: 'agent', text: sa ? `${t.chatWithAgent}: ${sa.name}` : t.greeting }]);
-    if (prefill) setChatInput(prefill);
-    loadSessions(sa?.id || '');
-    setDashTab('chat');
+  async function handleSavePrompt(e) {
+    e.preventDefault();
+    if (!editAgent || editBusy) return;
+    setEditBusy(true);
+    try {
+      const res = await fetch(`/api/sub-agents/${encodeURIComponent(editAgent.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          name: editAgent.name,
+          role: editAgent.role,
+          system_prompt: editAgent.system_prompt,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.sub_agent) {
+        setSubAgents((prev) => prev.map((a) => (a.id === data.sub_agent.id ? data.sub_agent : a)));
+        setEditAgent(null);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  async function handleShareAgent(e) {
+    e.preventDefault();
+    if (!shareAgent || shareBusy) return;
+    setShareBusy(true);
+    setShareFeedback(null);
+    try {
+      const res = await fetch(`/api/sub-agents/${encodeURIComponent(shareAgent.id)}/share`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ country_code: shareCountryCode, phone_number: sharePhone }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setShareFeedback({ ok: true, text: `✓ ${data.sent_to}` });
+        setTimeout(() => {
+          setShareAgent(null);
+          setSharePhone('');
+          setShareFeedback(null);
+        }, 1400);
+      } else {
+        setShareFeedback({ ok: false, text: data.error || 'Failed to share' });
+      }
+    } catch {
+      setShareFeedback({ ok: false, text: 'Connection error' });
+    } finally {
+      setShareBusy(false);
+    }
   }
 
   async function handleMicToggle() {
@@ -1173,13 +1246,12 @@ export default function App() {
         body: JSON.stringify({
           message: text,
           session_id: activeSessionId || null,
-          sub_agent_id: activeSubAgent?.id || null,
         }),
       });
       const data = await res.json();
       if (data.session_id) {
         setActiveSessionId(data.session_id);
-        loadSessions(activeSubAgent?.id || '');
+        loadSessions('');
       }
       if (data.agent_created || data.agent_updated) {
         refreshSubAgents();
@@ -1471,8 +1543,8 @@ export default function App() {
                       <div
                         key={sa.id}
                         style={{
-                          background: activeSubAgent?.id === sa.id ? 'rgba(220,38,38,0.08)' : 'var(--surface-charcoal)',
-                          border: `1px solid ${activeSubAgent?.id === sa.id ? 'var(--accent-red-primary)' : 'var(--gray-dark)'}`,
+                          background: 'var(--surface-charcoal)',
+                          border: '1px solid var(--gray-dark)',
                           borderRadius: '8px',
                           padding: '20px',
                           display: 'flex',
@@ -1497,10 +1569,6 @@ export default function App() {
                             onClick={async () => {
                               await fetch(`/api/sub-agents/${sa.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
                               setSubAgents((prev) => prev.filter((s) => s.id !== sa.id));
-                              if (activeSubAgent?.id === sa.id) {
-                                setActiveSubAgent(null);
-                                setActiveSessionId('');
-                              }
                             }}
                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--highlight-silver)', fontSize: '0.78rem', flexShrink: 0 }}
                             title="Delete"
@@ -1509,11 +1577,21 @@ export default function App() {
                           </button>
                         </div>
 
-                        {sa.system_prompt && (
-                          <p style={{ fontSize: '0.82rem', color: 'var(--highlight-silver)', margin: 0, lineHeight: 1.55, maxHeight: '60px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {sa.system_prompt.length > 120 ? sa.system_prompt.slice(0, 120) + '…' : sa.system_prompt}
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--gray-dark)', borderRadius: '6px', padding: '10px 12px' }}>
+                          <p style={{ fontSize: '0.82rem', color: 'var(--highlight-silver)', margin: 0, lineHeight: 1.55, flex: 1 }}>
+                            {sa.system_prompt
+                              ? (sa.system_prompt.length > 120 ? sa.system_prompt.slice(0, 120) + '…' : sa.system_prompt)
+                              : '—'}
                           </p>
-                        )}
+                          <button
+                            type="button"
+                            onClick={() => setEditAgent({ ...sa })}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--highlight-silver)', fontSize: '0.9rem', flexShrink: 0, padding: '2px' }}
+                            title={t.editPromptTitle}
+                          >
+                            ✏️
+                          </button>
+                        </div>
 
                         {Array.isArray(sa.skills) && sa.skills.length > 0 && (
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
@@ -1537,24 +1615,14 @@ export default function App() {
                           </div>
                         )}
 
-                        <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', flexWrap: 'wrap' }}>
-                          <button
-                            type="button"
-                            className={`btn ${activeSubAgent?.id === sa.id ? 'btn-primary' : 'btn-ghost'}`}
-                            style={{ flex: 1, fontSize: '0.82rem' }}
-                            onClick={() => openAgentChat(sa)}
-                          >
-                            {activeSubAgent?.id === sa.id ? t.activeAgent : t.chatWith}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-ghost"
-                            style={{ fontSize: '0.78rem', padding: '8px 10px' }}
-                            onClick={() => openAgentChat(sa, lang === 'ar' ? `صيانة وتحديث مهارات ${sa.name}: ` : `Maintain / install skill for ${sa.name}: `)}
-                          >
-                            🛠️ {t.maintainInChat}
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          style={{ marginTop: 'auto', width: '100%', fontSize: '0.84rem', letterSpacing: '0.06em' }}
+                          onClick={() => { setShareFeedback(null); setSharePhone(''); setShareAgent(sa); }}
+                        >
+                          {t.shareBtn}
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -1570,7 +1638,7 @@ export default function App() {
                     type="button"
                     className="btn btn-primary"
                     style={{ width: '100%', fontSize: '0.84rem' }}
-                    onClick={() => handleNewSession(activeSubAgent)}
+                    onClick={() => handleNewSession()}
                   >
                     + {t.newSession}
                   </button>
@@ -1597,7 +1665,7 @@ export default function App() {
                             background: activeSessionId === s.id ? 'rgba(220,38,38,0.16)' : 'rgba(255,255,255,0.03)',
                             border: `1px solid ${activeSessionId === s.id ? 'var(--accent-red-primary)' : 'transparent'}`,
                           }}
-                          onClick={() => selectSession(s.id, activeSubAgent)}
+                          onClick={() => selectSession(s.id)}
                         >
                           <span style={{ fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                             {s.title}
@@ -1619,31 +1687,10 @@ export default function App() {
                 {/* Main Chat Panel */}
                 <div className="chat-panel" style={{ height: '580px' }}>
                   <div className="chat-head">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                      <span className="chat-head-title">
-                        {activeSubAgent ? `Agent Father → ${activeSubAgent.name}` : t.chatTitle}
-                      </span>
-                      {activeSubAgent && (
-                        <span style={{ padding: '2px 8px', borderRadius: '20px', background: 'rgba(220,38,38,0.15)', color: 'var(--accent-red-bright)', fontSize: '0.7rem', fontWeight: 700 }}>
-                          {activeSubAgent.role}
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {activeSubAgent && (
-                        <button
-                          type="button"
-                          className="btn btn-ghost"
-                          style={{ fontSize: '0.75rem', padding: '4px 10px' }}
-                          onClick={() => openAgentChat(null)}
-                        >
-                          ← {t.backToAgentFather}
-                        </button>
-                      )}
-                      <span style={{ fontSize: '0.75rem', color: '#25D366' }}>
-                        ● {t.isolatedSession}
-                      </span>
-                    </div>
+                    <span className="chat-head-title">{t.chatTitle}</span>
+                    <span style={{ fontSize: '0.75rem', color: '#25D366' }}>
+                      ● {t.isolatedSession}
+                    </span>
                   </div>
                   <div className="chat-messages">
                     {messages.map((m, i) => (
@@ -1719,6 +1766,63 @@ export default function App() {
           <span>© 2026 Agent Father</span>
         </div>
       </footer>
+
+      {/* Edit Agent System Prompt Modal */}
+      {editAgent && (
+        <div className="modal-backdrop" onClick={() => setEditAgent(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>{editAgent.name} — {t.editPromptTitle}</h3>
+              <button type="button" className="btn btn-ghost" onClick={() => setEditAgent(null)}>X</button>
+            </div>
+            <form className="form-stack" onSubmit={handleSavePrompt}>
+              <textarea
+                className="input"
+                rows={7}
+                value={editAgent.system_prompt || ''}
+                onChange={(e) => setEditAgent({ ...editAgent, system_prompt: e.target.value })}
+                style={{ resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }}
+                required
+              />
+              <button className="btn btn-primary" type="submit" disabled={editBusy}>
+                {editBusy ? '...' : t.savePrompt}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Share Agent via WhatsApp Modal */}
+      {shareAgent && (
+        <div className="modal-backdrop" onClick={() => setShareAgent(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>{t.shareTitle}: {shareAgent.name}</h3>
+              <button type="button" className="btn btn-ghost" onClick={() => setShareAgent(null)}>X</button>
+            </div>
+            <form className="form-stack" onSubmit={handleShareAgent}>
+              <p style={{ fontSize: '0.88rem', color: 'var(--highlight-silver)' }}>{t.shareDesc}</p>
+              <select className="input" value={shareCountryCode} onChange={(e) => setShareCountryCode(e.target.value)}>
+                {COUNTRY_CODES.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
+              </select>
+              <input
+                className="input"
+                type="tel"
+                placeholder="1012345678"
+                value={sharePhone}
+                onChange={(e) => setSharePhone(e.target.value)}
+                required
+              />
+              <button className="btn btn-primary" type="submit" disabled={shareBusy}>
+                {shareBusy ? '...' : t.shareSend}
+              </button>
+              {shareFeedback && (
+                <div className={`status-banner ${shareFeedback.ok ? 'ok' : 'err'}`}>{shareFeedback.text}</div>
+              )}
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* WhatsApp OTP Modal */}
       {waModalOpen && (

@@ -50,6 +50,19 @@ pub struct CreateSessionReq {
 }
 
 #[derive(Deserialize)]
+pub struct UpdateSubAgentReq {
+    pub name: Option<String>,
+    pub role: Option<String>,
+    pub system_prompt: String,
+}
+
+#[derive(Deserialize)]
+pub struct ShareSubAgentReq {
+    pub country_code: String,
+    pub phone_number: String,
+}
+
+#[derive(Deserialize)]
 struct CreateAgentDirective {
     name: String,
     role: String,
@@ -61,6 +74,7 @@ struct CreateAgentDirective {
 
 #[derive(Deserialize)]
 struct UpdateAgentDirective {
+    agent_id: Option<String>,
     name: Option<String>,
     role: Option<String>,
     system_prompt: Option<String>,
@@ -68,6 +82,7 @@ struct UpdateAgentDirective {
 
 #[derive(Deserialize)]
 struct InstallSkillDirective {
+    agent_id: Option<String>,
     skill: String,
     #[serde(default)]
     description: String,
@@ -75,6 +90,7 @@ struct InstallSkillDirective {
 
 #[derive(Deserialize)]
 struct AddHelperDirective {
+    agent_id: Option<String>,
     name: String,
     role: String,
     #[serde(default)]
@@ -391,6 +407,195 @@ pub async fn delete_subagent_handler(
     (StatusCode::OK, Json(json!({ "ok": true })))
 }
 
+pub async fn update_subagent_handler(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateSubAgentReq>,
+) -> impl IntoResponse {
+    let Some(claims) = extract_claims(&headers) else {
+        return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Authentication required"})));
+    };
+    let existing = {
+        let conn = state.db.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT name, role, skills, helpers, created_at FROM sub_agents WHERE id = ?1 AND user_id = ?2",
+            (&id, &claims.sub),
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2).unwrap_or_else(|_| "[]".to_string()),
+                    r.get::<_, String>(3).unwrap_or_else(|_| "[]".to_string()),
+                    r.get::<_, String>(4)?,
+                ))
+            },
+        )
+        .optional()
+        .unwrap_or(None)
+    };
+    let Some((old_name, old_role, skills_raw, helpers_raw, created_at)) = existing else {
+        return (StatusCode::NOT_FOUND, Json(json!({"error": "Agent not found"})));
+    };
+    let name = req.name.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or(old_name);
+    let role = req.role.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or(old_role);
+    let prompt = req.system_prompt.trim().to_string();
+    let skills = parse_string_array(&skills_raw);
+    let helpers = parse_json_array(&helpers_raw);
+    let profile_dir = ensure_agent_profile(&claims.sub, &id, &name, &role, &prompt, &skills, &helpers);
+    let now = Utc::now().to_rfc3339();
+    {
+        let conn = state.db.conn.lock().unwrap();
+        let _ = conn.execute(
+            "UPDATE sub_agents SET name = ?1, role = ?2, system_prompt = ?3, profile_dir = ?4, updated_at = ?5 WHERE id = ?6 AND user_id = ?7",
+            (&name, &role, &prompt, &profile_dir, &now, &id, &claims.sub),
+        );
+    }
+    (StatusCode::OK, Json(json!({
+        "sub_agent": {
+            "id": id,
+            "name": name,
+            "role": role,
+            "system_prompt": prompt,
+            "profile_dir": profile_dir,
+            "skills": skills,
+            "helpers": helpers,
+            "created_at": created_at,
+        }
+    })))
+}
+
+fn normalize_share_phone(country_code: &str, phone: &str) -> Option<String> {
+    let cc: String = country_code.chars().filter(|c| c.is_ascii_digit()).collect();
+    let mut num: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
+    if cc.is_empty() || num.is_empty() {
+        return None;
+    }
+    if num.starts_with('0') {
+        num = num.trim_start_matches('0').to_string();
+    }
+    if num.is_empty() {
+        return None;
+    }
+    Some(format!("{}{}", cc, num))
+}
+
+pub async fn share_subagent_handler(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(req): Json<ShareSubAgentReq>,
+) -> impl IntoResponse {
+    let Some(claims) = extract_claims(&headers) else {
+        return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Authentication required"})));
+    };
+    let Some(full_digits) = normalize_share_phone(&req.country_code, &req.phone_number) else {
+        return (StatusCode::BAD_REQUEST, Json(json!({"error": "Valid country code and phone number are required"})));
+    };
+    let agent = {
+        let conn = state.db.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT name, role, system_prompt, skills FROM sub_agents WHERE id = ?1 AND user_id = ?2",
+            (&id, &claims.sub),
+            |r| {
+                let skills_raw: String = r.get(3).unwrap_or_else(|_| "[]".to_string());
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    parse_string_array(&skills_raw),
+                ))
+            },
+        )
+        .optional()
+        .unwrap_or(None)
+    };
+    let Some((name, role, system_prompt, skills)) = agent else {
+        return (StatusCode::NOT_FOUND, Json(json!({"error": "Agent not found"})));
+    };
+
+    let skills_desc = if skills.is_empty() {
+        "general assistance".to_string()
+    } else {
+        skills.join(", ")
+    };
+
+    let prompt_body = json!({
+        "contents": [{
+            "role": "user",
+            "parts": [{
+                "text": format!(
+                    "Write a short, friendly WhatsApp introduction message (2-4 sentences) from an AI assistant named '{}' (Role: {}, Skills: {}, Instructions: {}). \
+                    Match the language of the name/role (Arabic if Arabic, French if French, otherwise English). \
+                    Introduce who you are, what you can do, and ask how you can help them today. Output ONLY the message text.",
+                    name, role, skills_desc, system_prompt
+                )
+            }]
+        }]
+    });
+
+    let intro_msg = match state.key_pool.generate_content("gemini-3.5-flash-lite", &prompt_body).await {
+        Ok(v) => v["candidates"][0]["content"]["parts"][0]["text"]
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("مرحباً! أنا {} ({}). مهاراتي: {}. كيف أقدر أساعدك اليوم؟", name, role, skills_desc)),
+        Err(_) => format!("مرحباً! أنا {} ({}). مهاراتي: {}. كيف أقدر أساعدك اليوم؟", name, role, skills_desc),
+    };
+
+    let chat_id = format!("{}@s.whatsapp.net", full_digits);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .unwrap();
+
+    let send_res = client
+        .post(format!("{}/send", bridge_url()))
+        .bearer_auth(bridge_token())
+        .json(&json!({
+            "chatId": chat_id,
+            "message": intro_msg
+        }))
+        .send()
+        .await;
+
+    let text_ok = send_res.map(|r| r.status().is_success()).unwrap_or(false);
+    if !text_ok {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "WhatsApp service unavailable"})),
+        );
+    }
+
+    let mut voice_sent = false;
+    let file_name = format!("share_{}.ogg", Uuid::new_v4());
+    let host_path = audio_host_dir().join(&file_name);
+    let container_path = format!("/opt/data/audio/{}", file_name);
+    if let Ok(bytes) = state.key_pool.generate_tts_ogg_bytes(&intro_msg).await {
+        if std::fs::write(&host_path, bytes).is_ok() {
+            let wa_res = client
+                .post(format!("{}/send-media", bridge_url()))
+                .bearer_auth(bridge_token())
+                .json(&json!({
+                    "chatId": chat_id,
+                    "filePath": container_path,
+                    "mediaType": "audio"
+                }))
+                .send()
+                .await;
+            voice_sent = wa_res.map(|r| r.status().is_success()).unwrap_or(false);
+        }
+    }
+
+    (StatusCode::OK, Json(json!({
+        "ok": true,
+        "sent_to": format!("+{}", full_digits),
+        "voice_sent": voice_sent,
+        "message": intro_msg,
+    })))
+}
+
 fn bridge_token() -> String {
     if let Ok(tok) = std::fs::read_to_string("/app/hermes_data/whatsapp/session/.bridge-token") {
         let t = tok.trim().to_string();
@@ -534,11 +739,12 @@ pub async fn chat_handler(
     let now = Utc::now().to_rfc3339();
     let sub_agent_id_opt = req.sub_agent_id.clone().filter(|s| !s.trim().is_empty());
 
-    let (session_id, user_name, user_wa, sub_agent_ctx): (
+    let (session_id, user_name, user_wa, sub_agent_ctx, all_agents): (
         String,
         String,
         Option<String>,
         Option<SubAgentCtx>,
+        Vec<SubAgentCtx>,
     ) = {
         let conn = state.db.conn.lock().unwrap();
 
@@ -619,12 +825,59 @@ pub async fn chat_handler(
         } else {
             None
         };
-        (sid, u.0, u.1, sa)
+
+        let all_list: Vec<SubAgentCtx> = conn
+            .prepare("SELECT id, name, role, system_prompt, profile_dir, skills, helpers FROM sub_agents WHERE user_id = ?1 ORDER BY created_at DESC")
+            .ok()
+            .map(|mut stmt| {
+                stmt.query_map([&user_id], |r| {
+                    let skills_raw: String = r.get(5).unwrap_or_else(|_| "[]".to_string());
+                    let helpers_raw: String = r.get(6).unwrap_or_else(|_| "[]".to_string());
+                    Ok(SubAgentCtx {
+                        id: r.get(0)?,
+                        name: r.get(1)?,
+                        role: r.get(2)?,
+                        system_prompt: r.get(3)?,
+                        profile_dir: r.get(4).unwrap_or_default(),
+                        skills: parse_string_array(&skills_raw),
+                        helpers: parse_json_array(&helpers_raw),
+                    })
+                })
+                .map(|it| it.filter_map(|r| r.ok()).collect::<Vec<_>>())
+                .unwrap_or_default()
+            })
+            .unwrap_or_default();
+
+        (sid, u.0, u.1, sa, all_list)
     };
 
     let wa_info = match &user_wa {
         Some(num) if !num.is_empty() => format!("+{} (digits: {})", num, num),
         _ => "NOT LINKED".to_string(),
+    };
+
+    let agents_directory = if all_agents.is_empty() {
+        "No Workspace agents created yet.".to_string()
+    } else {
+        all_agents
+            .iter()
+            .map(|a| {
+                format!(
+                    "- id=\"{}\" | name=\"{}\" | role=\"{}\" | skills=[{}] | helpers=[{}] | prompt=\"{}\"",
+                    a.id,
+                    a.name,
+                    a.role,
+                    a.skills.join(", "),
+                    a.helpers
+                        .iter()
+                        .filter_map(|h| h.get("name").and_then(|v| v.as_str()))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    a.system_prompt
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     };
 
     let sub_agent_line = match &sub_agent_ctx {
@@ -641,9 +894,18 @@ pub async fn chat_handler(
             sa.skills.join(", "),
             sa.helpers.iter().filter_map(|h| h.get("name").and_then(|v| v.as_str())).collect::<Vec<_>>().join(", "),
         ),
-        None => "Workspace Creation Protocol: You can create new custom AI agents in the user's Workspace directly from this chat! \
-            Whenever the user asks to create/make/build a new agent or assistant (e.g., 'create an accountant agent' or 'اعمل لي وكيل محاسب'), \
-            include `[[create_agent:{\"name\":\"...\",\"role\":\"...\",\"system_prompt\":\"...\",\"skills\":[\"...\"]}]]` on its own line with a rich system_prompt and relevant skills, and confirm to the user in their language. ".to_string(),
+        None => format!(
+            "Agent Father Central Orchestrator: You are Agent Father — the single hub connecting the user to ALL of their Workspace agents. \
+            Whenever the user asks a question or task that belongs to one of their Workspace agents (for example accounting, research, coding, etc.), \
+            you execute it using that agent's persona, skills, and instructions seamlessly! \
+            \nUser's Workspace Agents:\n{}\n\
+            Protocols (output on its own line when needed):\n\
+            - Create new agent: `[[create_agent:{{\"name\":\"...\",\"role\":\"...\",\"system_prompt\":\"...\",\"skills\":[\"...\"]}}]]`\n\
+            - Update/maintain an existing agent: `[[update_agent:{{\"agent_id\":\"<id>\",\"name\":\"...\",\"role\":\"...\",\"system_prompt\":\"...\"}}]]`\n\
+            - Install skill on an existing agent: `[[install_skill:{{\"agent_id\":\"<id>\",\"skill\":\"...\",\"description\":\"...\"}}]]`\n\
+            - Add helper sub-agent to an existing agent: `[[add_helper:{{\"agent_id\":\"<id>\",\"name\":\"...\",\"role\":\"...\",\"system_prompt\":\"...\"}}]]`\n",
+            agents_directory
+        ),
     };
 
     let system_context = format!(
@@ -777,19 +1039,26 @@ pub async fn chat_handler(
         // ── [[update_agent:{...}]] ──
         if let Some(rest) = trimmed.strip_prefix("[[update_agent:") {
             if let Some(json_str) = rest.strip_suffix("]]") {
-                if let (Some(sa), Ok(d)) = (&sub_agent_ctx, serde_json::from_str::<UpdateAgentDirective>(json_str)) {
-                    let new_name = d.name.unwrap_or_else(|| sa.name.clone());
-                    let new_role = d.role.unwrap_or_else(|| sa.role.clone());
-                    let new_prompt = d.system_prompt.unwrap_or_else(|| sa.system_prompt.clone());
-                    let ts = Utc::now().to_rfc3339();
-                    let _ = ensure_agent_profile(&user_id, &sa.id, &new_name, &new_role, &new_prompt, &sa.skills, &sa.helpers);
-                    let conn = state.db.conn.lock().unwrap();
-                    let _ = conn.execute(
-                        "UPDATE sub_agents SET name = ?1, role = ?2, system_prompt = ?3, updated_at = ?4 WHERE id = ?5 AND user_id = ?6",
-                        (&new_name, &new_role, &new_prompt, &ts, &sa.id, &user_id),
-                    );
-                    agent_updated = true;
-                    final_lines.push(format!("✓ Updated agent profile: {}", new_name));
+                if let Ok(d) = serde_json::from_str::<UpdateAgentDirective>(json_str) {
+                    let target = sub_agent_ctx.as_ref().or_else(|| {
+                        d.agent_id
+                            .as_deref()
+                            .and_then(|aid| all_agents.iter().find(|a| a.id == aid))
+                    });
+                    if let Some(sa) = target {
+                        let new_name = d.name.unwrap_or_else(|| sa.name.clone());
+                        let new_role = d.role.unwrap_or_else(|| sa.role.clone());
+                        let new_prompt = d.system_prompt.unwrap_or_else(|| sa.system_prompt.clone());
+                        let ts = Utc::now().to_rfc3339();
+                        let _ = ensure_agent_profile(&user_id, &sa.id, &new_name, &new_role, &new_prompt, &sa.skills, &sa.helpers);
+                        let conn = state.db.conn.lock().unwrap();
+                        let _ = conn.execute(
+                            "UPDATE sub_agents SET name = ?1, role = ?2, system_prompt = ?3, updated_at = ?4 WHERE id = ?5 AND user_id = ?6",
+                            (&new_name, &new_role, &new_prompt, &ts, &sa.id, &user_id),
+                        );
+                        agent_updated = true;
+                        final_lines.push(format!("✓ Updated agent profile: {}", new_name));
+                    }
                 }
                 continue;
             }
@@ -798,23 +1067,30 @@ pub async fn chat_handler(
         // ── [[install_skill:{...}]] ──
         if let Some(rest) = trimmed.strip_prefix("[[install_skill:") {
             if let Some(json_str) = rest.strip_suffix("]]") {
-                if let (Some(sa), Ok(d)) = (&sub_agent_ctx, serde_json::from_str::<InstallSkillDirective>(json_str)) {
-                    let mut skills = sa.skills.clone();
-                    let skill_name = d.skill.trim().to_string();
-                    if !skill_name.is_empty() && !skills.iter().any(|s| s.eq_ignore_ascii_case(&skill_name)) {
-                        skills.push(skill_name.clone());
+                if let Ok(d) = serde_json::from_str::<InstallSkillDirective>(json_str) {
+                    let target = sub_agent_ctx.as_ref().or_else(|| {
+                        d.agent_id
+                            .as_deref()
+                            .and_then(|aid| all_agents.iter().find(|a| a.id == aid))
+                    });
+                    if let Some(sa) = target {
+                        let mut skills = sa.skills.clone();
+                        let skill_name = d.skill.trim().to_string();
+                        if !skill_name.is_empty() && !skills.iter().any(|s| s.eq_ignore_ascii_case(&skill_name)) {
+                            skills.push(skill_name.clone());
+                        }
+                        let profile_path = hermes_profiles_root().join(&user_id).join(&sa.id);
+                        write_skill_file(&profile_path, &skill_name, &d.description);
+                        let skills_json = serde_json::to_string(&skills).unwrap_or_else(|_| "[]".to_string());
+                        let ts = Utc::now().to_rfc3339();
+                        let conn = state.db.conn.lock().unwrap();
+                        let _ = conn.execute(
+                            "UPDATE sub_agents SET skills = ?1, updated_at = ?2 WHERE id = ?3 AND user_id = ?4",
+                            (&skills_json, &ts, &sa.id, &user_id),
+                        );
+                        agent_updated = true;
+                        final_lines.push(format!("✓ Installed skill '{}' in {}'s profile", skill_name, sa.name));
                     }
-                    let profile_path = hermes_profiles_root().join(&user_id).join(&sa.id);
-                    write_skill_file(&profile_path, &skill_name, &d.description);
-                    let skills_json = serde_json::to_string(&skills).unwrap_or_else(|_| "[]".to_string());
-                    let ts = Utc::now().to_rfc3339();
-                    let conn = state.db.conn.lock().unwrap();
-                    let _ = conn.execute(
-                        "UPDATE sub_agents SET skills = ?1, updated_at = ?2 WHERE id = ?3 AND user_id = ?4",
-                        (&skills_json, &ts, &sa.id, &user_id),
-                    );
-                    agent_updated = true;
-                    final_lines.push(format!("✓ Installed skill '{}' in {}'s profile", skill_name, sa.name));
                 }
                 continue;
             }
@@ -823,24 +1099,31 @@ pub async fn chat_handler(
         // ── [[add_helper:{...}]] ──
         if let Some(rest) = trimmed.strip_prefix("[[add_helper:") {
             if let Some(json_str) = rest.strip_suffix("]]") {
-                if let (Some(sa), Ok(d)) = (&sub_agent_ctx, serde_json::from_str::<AddHelperDirective>(json_str)) {
-                    let mut helpers = sa.helpers.clone();
-                    helpers.push(json!({
-                        "id": Uuid::new_v4().to_string(),
-                        "name": d.name.trim(),
-                        "role": d.role.trim(),
-                        "system_prompt": d.system_prompt.trim(),
-                    }));
-                    let _ = ensure_agent_profile(&user_id, &sa.id, &sa.name, &sa.role, &sa.system_prompt, &sa.skills, &helpers);
-                    let helpers_json = serde_json::to_string(&helpers).unwrap_or_else(|_| "[]".to_string());
-                    let ts = Utc::now().to_rfc3339();
-                    let conn = state.db.conn.lock().unwrap();
-                    let _ = conn.execute(
-                        "UPDATE sub_agents SET helpers = ?1, updated_at = ?2 WHERE id = ?3 AND user_id = ?4",
-                        (&helpers_json, &ts, &sa.id, &user_id),
-                    );
-                    agent_updated = true;
-                    final_lines.push(format!("✓ Added helper sub-agent '{}' ({}) to {}", d.name.trim(), d.role.trim(), sa.name));
+                if let Ok(d) = serde_json::from_str::<AddHelperDirective>(json_str) {
+                    let target = sub_agent_ctx.as_ref().or_else(|| {
+                        d.agent_id
+                            .as_deref()
+                            .and_then(|aid| all_agents.iter().find(|a| a.id == aid))
+                    });
+                    if let Some(sa) = target {
+                        let mut helpers = sa.helpers.clone();
+                        helpers.push(json!({
+                            "id": Uuid::new_v4().to_string(),
+                            "name": d.name.trim(),
+                            "role": d.role.trim(),
+                            "system_prompt": d.system_prompt.trim(),
+                        }));
+                        let _ = ensure_agent_profile(&user_id, &sa.id, &sa.name, &sa.role, &sa.system_prompt, &sa.skills, &helpers);
+                        let helpers_json = serde_json::to_string(&helpers).unwrap_or_else(|_| "[]".to_string());
+                        let ts = Utc::now().to_rfc3339();
+                        let conn = state.db.conn.lock().unwrap();
+                        let _ = conn.execute(
+                            "UPDATE sub_agents SET helpers = ?1, updated_at = ?2 WHERE id = ?3 AND user_id = ?4",
+                            (&helpers_json, &ts, &sa.id, &user_id),
+                        );
+                        agent_updated = true;
+                        final_lines.push(format!("✓ Added helper sub-agent '{}' ({}) to {}", d.name.trim(), d.role.trim(), sa.name));
+                    }
                 }
                 continue;
             }
