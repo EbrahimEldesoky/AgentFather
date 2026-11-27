@@ -817,7 +817,11 @@ export default function App() {
   const [messages, setMessages] = useState([{ role: 'agent', text: COPY.en.greeting }]);
   const [chatInput, setChatInput] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
+  const [micState, setMicState] = useState('idle'); // 'idle' | 'listening' | 'transcribing'
   const chatEndRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -990,6 +994,94 @@ export default function App() {
     if (prefill) setChatInput(prefill);
     loadSessions(sa?.id || '');
     setDashTab('chat');
+  }
+
+  async function handleMicToggle() {
+    if (micState === 'transcribing') return;
+
+    if (micState === 'listening') {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+      return;
+    }
+
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRec) {
+      const rec = new SpeechRec();
+      rec.lang = lang === 'ar' ? 'ar-EG' : lang === 'fr' ? 'fr-FR' : 'en-US';
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+      rec.onresult = (event) => {
+        const transcript = event.results?.[0]?.[0]?.transcript || '';
+        if (transcript.trim()) {
+          setChatInput((prev) => (prev ? `${prev} ${transcript.trim()}` : transcript.trim()));
+        }
+      };
+      rec.onerror = () => {
+        setMicState('idle');
+        recognitionRef.current = null;
+      };
+      rec.onend = () => {
+        setMicState('idle');
+        recognitionRef.current = null;
+      };
+      recognitionRef.current = rec;
+      setMicState('listening');
+      rec.start();
+      return;
+    }
+
+    // Fallback for browsers without Web Speech API (e.g. Firefox): MediaRecorder + /api/chat/transcribe
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) audioChunksRef.current.push(ev.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((tr) => tr.stop());
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        if (blob.size === 0) {
+          setMicState('idle');
+          return;
+        }
+        setMicState('transcribing');
+        try {
+          const buf = await blob.arrayBuffer();
+          let binary = '';
+          const bytes = new Uint8Array(buf);
+          for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+          const b64 = btoa(binary);
+          const res = await fetch('/api/chat/transcribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ audio_base64: b64, mime_type: recorder.mimeType || 'audio/webm' }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.text) {
+              setChatInput((prev) => (prev ? `${prev} ${data.text}` : data.text));
+            }
+          }
+        } catch {
+          // ignore
+        } finally {
+          setMicState('idle');
+          mediaRecorderRef.current = null;
+        }
+      };
+      mediaRecorderRef.current = recorder;
+      setMicState('listening');
+      recorder.start();
+    } catch {
+      setMicState('idle');
+    }
   }
 
   function openDashboardOrLogin(tab = 'chat') {
@@ -1368,34 +1460,10 @@ export default function App() {
 
             {dashTab === 'workspace' && (
               <div>
-                {/* Workspace header — creation & maintenance happen via Chat */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
-                  <div>
-                    <h3 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: '4px' }}>{t.tabWorkspace}</h3>
-                    <p style={{ fontSize: '0.83rem', color: 'var(--highlight-silver)' }}>{t.workspaceChatSub}</p>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => openAgentChat(null)}
-                  >
-                    💬 {t.createAgentInChat}
-                  </button>
-                </div>
-
-                {/* Sub-agent cards grid */}
+                {/* Sub-agent cards grid — created & maintained purely via Chat */}
                 {subAgents.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--highlight-silver)' }}>
-                    <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>🤖</div>
-                    <div style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '6px' }}>{t.noSubAgents}</div>
-                    <div style={{ fontSize: '0.84rem', marginBottom: '20px' }}>{t.workspaceChatSub}</div>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      onClick={() => openAgentChat(null)}
-                    >
-                      💬 {t.createAgentInChat}
-                    </button>
+                  <div style={{ textAlign: 'center', padding: '72px 0', color: 'var(--highlight-silver)' }}>
+                    <div style={{ fontSize: '0.95rem' }}>{t.workspaceChatSub}</div>
                   </div>
                 ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
@@ -1600,6 +1668,16 @@ export default function App() {
                       value={chatInput}
                       onChange={(e) => setChatInput(e.target.value)}
                     />
+                    <button
+                      type="button"
+                      className={`btn ${micState === 'listening' ? 'btn-primary' : 'btn-ghost'}`}
+                      onClick={handleMicToggle}
+                      disabled={chatBusy || micState === 'transcribing'}
+                      title={micState === 'listening' ? 'Stop recording' : 'Voice input'}
+                      style={{ minWidth: '44px', padding: '0 12px', fontSize: '1rem' }}
+                    >
+                      {micState === 'listening' ? '⏹️' : micState === 'transcribing' ? '⏳' : '🎤'}
+                    </button>
                     <button className="btn btn-primary" type="submit" disabled={chatBusy}>
                       {chatBusy ? '...' : t.send}
                     </button>
