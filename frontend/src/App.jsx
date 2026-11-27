@@ -74,6 +74,15 @@ const COPY = {
     activeAgent: '✓ Active — click to deactivate',
     chatWithAgent: 'Chat started with',
     backToAgentFather: 'Back to Agent Father',
+    createAgentInChat: 'Create Agent in Chat',
+    workspaceChatSub: 'Ask Agent Father in Chat to create, maintain, or install skills for your workspace agents.',
+    newSession: 'New Session',
+    sessionsTitle: 'Sessions',
+    noSessions: 'No saved sessions yet',
+    maintainInChat: 'Maintain / Skills',
+    skillsLabel: 'Skills',
+    helpersLabel: 'Helpers',
+    profileLabel: 'Isolated Profile',
     nameLabel: 'Name:',
     emailLabel: 'Email / ID:',
     isolationNote: 'Your account data and agent memory are strictly isolated from other users.',
@@ -180,6 +189,15 @@ const COPY = {
     activeAgent: '✓ Actif — cliquez pour désactiver',
     chatWithAgent: 'Discussion démarrée avec',
     backToAgentFather: 'Retour à Agent Father',
+    createAgentInChat: 'Créer un agent dans le chat',
+    workspaceChatSub: 'Demandez à Agent Father dans le chat de créer, maintenir ou installer des compétences pour vos agents.',
+    newSession: 'Nouvelle session',
+    sessionsTitle: 'Sessions',
+    noSessions: 'Aucune session enregistrée',
+    maintainInChat: 'Maintenance / Compétences',
+    skillsLabel: 'Compétences',
+    helpersLabel: 'Sous-agents',
+    profileLabel: 'Profil isolé',
     nameLabel: 'Nom :',
     emailLabel: 'E-mail / ID :',
     isolationNote: 'Vos données et la mémoire de votre agent sont strictement isolées des autres utilisateurs.',
@@ -286,6 +304,15 @@ const COPY = {
     activeAgent: '✓ نشط — انقر للإيقاف',
     chatWithAgent: 'بدأت المحادثة مع',
     backToAgentFather: 'العودة إلى Agent Father',
+    createAgentInChat: 'إنشاء وكيل من الشات',
+    workspaceChatSub: 'اطلب من Agent Father داخل الشات إنشاء أي وكيل أو صيانته أو تنزيل مهارات ووكلاء مساعدين له.',
+    newSession: 'جلسة جديدة',
+    sessionsTitle: 'سجل الجلسات',
+    noSessions: 'لا توجد جلسات محفوظة بعد',
+    maintainInChat: 'صيانة / مهارات',
+    skillsLabel: 'المهارات',
+    helpersLabel: 'الوكلاء المساعدون',
+    profileLabel: 'بروفايل معزول',
     nameLabel: 'الاسم:',
     emailLabel: 'البريد / المعرف:',
     isolationNote: 'بياناتك ومحادثاتك معزولة تماماً عن بقية المستخدمين.',
@@ -770,13 +797,11 @@ export default function App() {
 
   const [dashTab, setDashTab] = useState('workspace');
 
-  // Sub-agents (Workspace)
+  // Sub-agents (Workspace) & Chat Sessions
   const [subAgents, setSubAgents] = useState([]);
-  const [createAgentModal, setCreateAgentModal] = useState(false);
-  const [agentForm, setAgentForm] = useState({ name: '', role: '', system_prompt: '' });
-  const [agentFormBusy, setAgentFormBusy] = useState(false);
-  const [agentFormErr, setAgentFormErr] = useState('');
   const [activeSubAgent, setActiveSubAgent] = useState(null); // null = main Agent Father
+  const [sessions, setSessions] = useState([]);
+  const [activeSessionId, setActiveSessionId] = useState('');
 
   // WhatsApp OTP Modal
   const [waModalOpen, setWaModalOpen] = useState(false);
@@ -819,6 +844,10 @@ export default function App() {
         fetch('/api/sub-agents', { headers: { Authorization: `Bearer ${token}` } })
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => { if (d?.sub_agents) setSubAgents(d.sub_agents); })
+          .catch(() => {});
+        fetch('/api/chat/sessions', { headers: { Authorization: `Bearer ${token}` } })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => { if (d?.sessions) setSessions(d.sessions); })
           .catch(() => {});
       })
       .catch(() => {
@@ -864,7 +893,103 @@ export default function App() {
     setMessages([{ role: 'agent', text: t.greeting }]);
     setSubAgents([]);
     setActiveSubAgent(null);
+    setSessions([]);
+    setActiveSessionId('');
     setPage('home');
+  }
+
+  async function refreshSubAgents() {
+    if (!token) return;
+    try {
+      const r = await fetch('/api/sub-agents', { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) {
+        const d = await r.json();
+        setSubAgents(d.sub_agents || []);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function loadSessions(saId) {
+    if (!token) return;
+    const qs = saId ? `?sub_agent_id=${encodeURIComponent(saId)}` : '';
+    try {
+      const r = await fetch(`/api/chat/sessions${qs}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) {
+        const d = await r.json();
+        setSessions(d.sessions || []);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function selectSession(sid, saObj = activeSubAgent) {
+    setActiveSessionId(sid);
+    if (!token) return;
+    try {
+      const r = await fetch(`/api/chat/history?session_id=${encodeURIComponent(sid)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (r.ok) {
+        const d = await r.json();
+        if (d.messages && d.messages.length > 0) {
+          setMessages(d.messages);
+        } else {
+          setMessages([{ role: 'agent', text: saObj ? `${t.chatWithAgent}: ${saObj.name}` : t.greeting }]);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleNewSession(saObj = activeSubAgent) {
+    if (!token) return;
+    try {
+      const r = await fetch('/api/chat/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ title: t.newSession, sub_agent_id: saObj?.id || null }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        if (d.session) {
+          setSessions((prev) => [d.session, ...prev]);
+          setActiveSessionId(d.session.id);
+          setMessages([{ role: 'agent', text: saObj ? `${t.chatWithAgent}: ${saObj.name}` : t.greeting }]);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleDeleteSession(sid) {
+    if (!token) return;
+    try {
+      await fetch(`/api/chat/sessions/${encodeURIComponent(sid)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setSessions((prev) => prev.filter((s) => s.id !== sid));
+      if (activeSessionId === sid) {
+        setActiveSessionId('');
+        setMessages([{ role: 'agent', text: activeSubAgent ? `${t.chatWithAgent}: ${activeSubAgent.name}` : t.greeting }]);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  function openAgentChat(sa, prefill = '') {
+    setActiveSubAgent(sa);
+    setActiveSessionId('');
+    setMessages([{ role: 'agent', text: sa ? `${t.chatWithAgent}: ${sa.name}` : t.greeting }]);
+    if (prefill) setChatInput(prefill);
+    loadSessions(sa?.id || '');
+    setDashTab('chat');
   }
 
   function openDashboardOrLogin(tab = 'chat') {
@@ -953,9 +1078,20 @@ export default function App() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ message: text, sub_agent_id: activeSubAgent?.id || null }),
+        body: JSON.stringify({
+          message: text,
+          session_id: activeSessionId || null,
+          sub_agent_id: activeSubAgent?.id || null,
+        }),
       });
       const data = await res.json();
+      if (data.session_id) {
+        setActiveSessionId(data.session_id);
+        loadSessions(activeSubAgent?.id || '');
+      }
+      if (data.agent_created || data.agent_updated) {
+        refreshSubAgents();
+      }
       setMessages((prev) => [
         ...prev,
         {
@@ -1232,18 +1368,18 @@ export default function App() {
 
             {dashTab === 'workspace' && (
               <div>
-                {/* Workspace header */}
+                {/* Workspace header — creation & maintenance happen via Chat */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
                   <div>
                     <h3 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: '4px' }}>{t.tabWorkspace}</h3>
-                    <p style={{ fontSize: '0.83rem', color: 'var(--highlight-silver)' }}>{t.workspaceSub}</p>
+                    <p style={{ fontSize: '0.83rem', color: 'var(--highlight-silver)' }}>{t.workspaceChatSub}</p>
                   </div>
                   <button
                     type="button"
                     className="btn btn-primary"
-                    onClick={() => { setAgentFormErr(''); setAgentForm({ name: '', role: '', system_prompt: '' }); setCreateAgentModal(true); }}
+                    onClick={() => openAgentChat(null)}
                   >
-                    + {t.newSubAgent}
+                    💬 {t.createAgentInChat}
                   </button>
                 </div>
 
@@ -1252,10 +1388,17 @@ export default function App() {
                   <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--highlight-silver)' }}>
                     <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>🤖</div>
                     <div style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '6px' }}>{t.noSubAgents}</div>
-                    <div style={{ fontSize: '0.84rem' }}>{t.noSubAgentsSub}</div>
+                    <div style={{ fontSize: '0.84rem', marginBottom: '20px' }}>{t.workspaceChatSub}</div>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={() => openAgentChat(null)}
+                    >
+                      💬 {t.createAgentInChat}
+                    </button>
                   </div>
                 ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
                     {subAgents.map((sa) => (
                       <div
                         key={sa.id}
@@ -1272,16 +1415,24 @@ export default function App() {
                         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
                           <div>
                             <div style={{ fontSize: '1rem', fontWeight: 700 }}>{sa.name}</div>
-                            <span style={{ display: 'inline-block', marginTop: '4px', padding: '2px 8px', borderRadius: '20px', background: 'rgba(220,38,38,0.15)', color: 'var(--accent-red-bright)', fontSize: '0.72rem', fontWeight: 700 }}>
-                              {sa.role}
-                            </span>
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
+                              <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '20px', background: 'rgba(220,38,38,0.15)', color: 'var(--accent-red-bright)', fontSize: '0.72rem', fontWeight: 700 }}>
+                                {sa.role}
+                              </span>
+                              <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '20px', background: 'rgba(37,211,102,0.12)', color: '#25D366', fontSize: '0.7rem', fontWeight: 600 }}>
+                                ● {t.profileLabel}
+                              </span>
+                            </div>
                           </div>
                           <button
                             type="button"
                             onClick={async () => {
                               await fetch(`/api/sub-agents/${sa.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
                               setSubAgents((prev) => prev.filter((s) => s.id !== sa.id));
-                              if (activeSubAgent?.id === sa.id) setActiveSubAgent(null);
+                              if (activeSubAgent?.id === sa.id) {
+                                setActiveSubAgent(null);
+                                setActiveSessionId('');
+                              }
                             }}
                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--highlight-silver)', fontSize: '0.78rem', flexShrink: 0 }}
                             title="Delete"
@@ -1289,109 +1440,115 @@ export default function App() {
                             🗑️
                           </button>
                         </div>
+
                         {sa.system_prompt && (
                           <p style={{ fontSize: '0.82rem', color: 'var(--highlight-silver)', margin: 0, lineHeight: 1.55, maxHeight: '60px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {sa.system_prompt.length > 120 ? sa.system_prompt.slice(0, 120) + '…' : sa.system_prompt}
                           </p>
                         )}
-                        <button
-                          type="button"
-                          className={`btn ${activeSubAgent?.id === sa.id ? 'btn-primary' : 'btn-ghost'}`}
-                          style={{ marginTop: 'auto', fontSize: '0.84rem' }}
-                          onClick={() => {
-                            if (activeSubAgent?.id === sa.id) {
-                              setActiveSubAgent(null);
-                            } else {
-                              setActiveSubAgent(sa);
-                              setMessages([{ role: 'agent', text: `${t.chatWithAgent}: ${sa.name}` }]);
-                              setDashTab('chat');
-                            }
-                          }}
-                        >
-                          {activeSubAgent?.id === sa.id ? t.activeAgent : t.chatWith}
-                        </button>
+
+                        {Array.isArray(sa.skills) && sa.skills.length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--gray-light)' }}>{t.skillsLabel}:</span>
+                            {sa.skills.map((sk) => (
+                              <span key={sk} style={{ fontSize: '0.7rem', padding: '2px 7px', borderRadius: '4px', background: 'var(--bg-pure-black)', border: '1px solid var(--gray-dark)', color: 'var(--highlight-silver)' }}>
+                                {sk}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {Array.isArray(sa.helpers) && sa.helpers.length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--gray-light)' }}>{t.helpersLabel}:</span>
+                            {sa.helpers.map((hp, idx) => (
+                              <span key={hp.id || idx} style={{ fontSize: '0.7rem', padding: '2px 7px', borderRadius: '4px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--gray-dark)', color: 'var(--text-white)' }}>
+                                {hp.name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            className={`btn ${activeSubAgent?.id === sa.id ? 'btn-primary' : 'btn-ghost'}`}
+                            style={{ flex: 1, fontSize: '0.82rem' }}
+                            onClick={() => openAgentChat(sa)}
+                          >
+                            {activeSubAgent?.id === sa.id ? t.activeAgent : t.chatWith}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ fontSize: '0.78rem', padding: '8px 10px' }}
+                            onClick={() => openAgentChat(sa, lang === 'ar' ? `صيانة وتحديث مهارات ${sa.name}: ` : `Maintain / install skill for ${sa.name}: `)}
+                          >
+                            🛠️ {t.maintainInChat}
+                          </button>
+                        </div>
                       </div>
                     ))}
-                  </div>
-                )}
-
-                {/* Create Sub-Agent Modal */}
-                {createAgentModal && (
-                  <div className="modal-backdrop" onClick={() => setCreateAgentModal(false)}>
-                    <div className="modal" onClick={(e) => e.stopPropagation()}>
-                      <div className="modal-head">
-                        <h3>{t.newSubAgent}</h3>
-                        <button type="button" className="btn btn-ghost" onClick={() => setCreateAgentModal(false)}>X</button>
-                      </div>
-                      <form
-                        className="form-stack"
-                        onSubmit={async (e) => {
-                          e.preventDefault();
-                          if (!agentForm.name.trim() || !agentForm.role.trim()) {
-                            setAgentFormErr(t.agentFormErr);
-                            return;
-                          }
-                          setAgentFormBusy(true);
-                          setAgentFormErr('');
-                          try {
-                            const res = await fetch('/api/sub-agents', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                              body: JSON.stringify(agentForm),
-                            });
-                            const data = await res.json();
-                            if (res.ok && data.sub_agent) {
-                              setSubAgents((prev) => [data.sub_agent, ...prev]);
-                              setCreateAgentModal(false);
-                              setAgentForm({ name: '', role: '', system_prompt: '' });
-                            } else {
-                              setAgentFormErr(data.error || 'Failed to create');
-                            }
-                          } catch {
-                            setAgentFormErr('Network error');
-                          } finally {
-                            setAgentFormBusy(false);
-                          }
-                        }}
-                      >
-                        <label style={{ fontSize: '0.82rem', color: 'var(--highlight-silver)', marginBottom: '-8px' }}>{t.agentName}</label>
-                        <input
-                          className="input"
-                          placeholder={t.agentNamePlaceholder}
-                          value={agentForm.name}
-                          onChange={(e) => setAgentForm({ ...agentForm, name: e.target.value })}
-                          required
-                        />
-                        <label style={{ fontSize: '0.82rem', color: 'var(--highlight-silver)', marginBottom: '-8px' }}>{t.agentRole}</label>
-                        <input
-                          className="input"
-                          placeholder={t.agentRolePlaceholder}
-                          value={agentForm.role}
-                          onChange={(e) => setAgentForm({ ...agentForm, role: e.target.value })}
-                          required
-                        />
-                        <label style={{ fontSize: '0.82rem', color: 'var(--highlight-silver)', marginBottom: '-8px' }}>{t.agentSystemPrompt}</label>
-                        <textarea
-                          className="input"
-                          rows={4}
-                          placeholder={t.agentPromptPlaceholder}
-                          value={agentForm.system_prompt}
-                          onChange={(e) => setAgentForm({ ...agentForm, system_prompt: e.target.value })}
-                          style={{ resize: 'vertical', fontFamily: 'inherit' }}
-                        />
-                        {agentFormErr && <div className="status-banner err">{agentFormErr}</div>}
-                        <button className="btn btn-primary" type="submit" disabled={agentFormBusy}>
-                          {agentFormBusy ? '...' : t.createAgent}
-                        </button>
-                      </form>
-                    </div>
                   </div>
                 )}
               </div>
             )}
 
             {dashTab === 'chat' && (
-              <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 260px) 1fr', gap: '16px', alignItems: 'stretch' }}>
+                {/* Sessions Sidebar */}
+                <div style={{ background: 'var(--surface-charcoal)', border: '1px solid var(--gray-dark)', borderRadius: '8px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px', height: '580px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ width: '100%', fontSize: '0.84rem' }}
+                    onClick={() => handleNewSession(activeSubAgent)}
+                  >
+                    + {t.newSession}
+                  </button>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--gray-light)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '4px' }}>
+                    {t.sessionsTitle}
+                  </div>
+                  <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {sessions.length === 0 ? (
+                      <div style={{ fontSize: '0.78rem', color: 'var(--gray-light)', padding: '12px 4px' }}>
+                        {t.noSessions}
+                      </div>
+                    ) : (
+                      sessions.map((s) => (
+                        <div
+                          key={s.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '6px',
+                            padding: '8px 10px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            background: activeSessionId === s.id ? 'rgba(220,38,38,0.16)' : 'rgba(255,255,255,0.03)',
+                            border: `1px solid ${activeSessionId === s.id ? 'var(--accent-red-primary)' : 'transparent'}`,
+                          }}
+                          onClick={() => selectSession(s.id, activeSubAgent)}
+                        >
+                          <span style={{ fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                            {s.title}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleDeleteSession(s.id); }}
+                            style={{ background: 'none', border: 'none', color: 'var(--gray-light)', cursor: 'pointer', fontSize: '0.72rem', flexShrink: 0 }}
+                            title="Delete"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Main Chat Panel */}
                 <div className="chat-panel" style={{ height: '580px' }}>
                   <div className="chat-head">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -1410,7 +1567,7 @@ export default function App() {
                           type="button"
                           className="btn btn-ghost"
                           style={{ fontSize: '0.75rem', padding: '4px 10px' }}
-                          onClick={() => { setActiveSubAgent(null); setMessages([{ role: 'agent', text: t.greeting }]); }}
+                          onClick={() => openAgentChat(null)}
                         >
                           ← {t.backToAgentFather}
                         </button>
@@ -1423,7 +1580,7 @@ export default function App() {
                   <div className="chat-messages">
                     {messages.map((m, i) => (
                       <div key={i} className={`msg ${m.role}`}>
-                        {m.text && <div>{m.text}</div>}
+                        {m.text && <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>}
                         {m.audio_url && (
                           <audio
                             controls
