@@ -89,6 +89,11 @@ const COPY = {
     shareSend: 'Send Intro & Voice Note',
     editPromptTitle: 'System Prompt',
     savePrompt: 'Save Changes',
+    tabMonitoring: 'System Monitoring',
+    monitoringTitle: 'System Monitoring',
+    monitoringSub: 'Live animated avatars & real-time activity feed for every Workspace agent — showing what each agent is doing and has completed.',
+    monitoringEmpty: 'Create an agent in Chat to preview its monitoring avatar slot here.',
+    monitoringAvatarStatus: 'Animated Avatar & Live Activity Feed',
     nameLabel: 'Name:',
     emailLabel: 'Email / ID:',
     isolationNote: 'Your account data and agent memory are strictly isolated from other users.',
@@ -210,6 +215,11 @@ const COPY = {
     shareSend: 'Envoyer présentation',
     editPromptTitle: 'Prompt Système',
     savePrompt: 'Enregistrer',
+    tabMonitoring: 'Surveillance système',
+    monitoringTitle: 'Surveillance du système',
+    monitoringSub: 'Avatars animés et suivi en temps réel de l’activité de chaque agent — affichant ses tâches en cours et terminées.',
+    monitoringEmpty: 'Créez un agent dans le chat pour prévisualiser son avatar ici.',
+    monitoringAvatarStatus: 'Avatar animé et flux d’activité en direct',
     nameLabel: 'Nom :',
     emailLabel: 'E-mail / ID :',
     isolationNote: 'Vos données et la mémoire de votre agent sont strictement isolées des autres utilisateurs.',
@@ -331,6 +341,11 @@ const COPY = {
     shareSend: 'إرسال الرسالة والريكورد',
     editPromptTitle: 'تعديل System Prompt',
     savePrompt: 'حفظ التعديلات',
+    tabMonitoring: 'مراقبة النظام',
+    monitoringTitle: 'مراقبة النظام (System Monitoring)',
+    monitoringSub: 'أفاتار متحرك لكل وكيل يتم إنشاؤه في مساحة العمل يعرض نشاطه المباشر وما يفعله وما أنجزه.',
+    monitoringEmpty: 'أنشئ وكيلاً من الشات ليظهر مكان الأفاتار الخاص به هنا.',
+    monitoringAvatarStatus: 'أفاتار متحرك وسجل نشاط مباشر',
     nameLabel: 'الاسم:',
     emailLabel: 'البريد / المعرف:',
     isolationNote: 'بياناتك ومحادثاتك معزولة تماماً عن بقية المستخدمين.',
@@ -1517,7 +1532,7 @@ export default function App() {
                 { key: 'workspace', label: t.tabWorkspace },
                 { key: 'chat', label: t.tabChat },
                 { key: 'integrations', label: t.tabIntegrations },
-                { key: 'account', label: t.tabAccount },
+                { key: 'monitoring', label: t.tabMonitoring },
               ].map((tab) => (
                 <button
                   key={tab.key}
@@ -1552,18 +1567,8 @@ export default function App() {
                           gap: '12px',
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
-                          <div>
-                            <div style={{ fontSize: '1rem', fontWeight: 700 }}>{sa.name}</div>
-                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
-                              <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '20px', background: 'rgba(220,38,38,0.15)', color: 'var(--accent-red-bright)', fontSize: '0.72rem', fontWeight: 700 }}>
-                                {sa.role}
-                              </span>
-                              <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '20px', background: 'rgba(37,211,102,0.12)', color: '#25D366', fontSize: '0.7rem', fontWeight: 600 }}>
-                                ● {t.profileLabel}
-                              </span>
-                            </div>
-                          </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                          <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>{sa.name}</div>
                           <button
                             type="button"
                             onClick={async () => {
@@ -1741,15 +1746,61 @@ export default function App() {
               />
             )}
 
-            {dashTab === 'account' && (
-              <div style={{ maxWidth: '560px', background: 'var(--surface-charcoal)', border: '1px solid var(--gray-dark)', borderRadius: '6px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div className="panel-label">{t.tabAccount}</div>
-                <div><strong>{t.nameLabel}</strong> {user.name}</div>
-                <div><strong>{t.emailLabel}</strong> {user.email}</div>
-                <div><strong>WhatsApp:</strong> {verifiedWa || t.notLinked}</div>
-                <div style={{ fontSize: '0.82rem', color: 'var(--highlight-silver)', borderTop: '1px solid var(--gray-dark)', paddingTop: '12px' }}>
-                  {t.isolationNote}
+            {dashTab === 'monitoring' && (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '24px' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                      <h3 style={{ fontSize: '1.15rem', fontWeight: 800 }}>{t.monitoringTitle}</h3>
+                      <span style={{ padding: '2px 10px', borderRadius: '20px', background: 'rgba(220,38,38,0.16)', border: '1px solid var(--accent-red-primary)', color: 'var(--accent-red-bright)', fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.08em' }}>
+                        {t.soon}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--highlight-silver)', maxWidth: '680px', lineHeight: 1.6 }}>
+                      {t.monitoringSub}
+                    </p>
+                  </div>
                 </div>
+
+                {subAgents.length === 0 ? (
+                  <div style={{ background: 'var(--surface-charcoal)', border: '1px dashed var(--gray-dark)', borderRadius: '8px', padding: '56px 24px', textAlign: 'center', color: 'var(--highlight-silver)' }}>
+                    <div style={{ fontSize: '2.2rem', marginBottom: '10px' }}>🛰️</div>
+                    <div style={{ fontSize: '0.92rem' }}>{t.monitoringEmpty}</div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '16px' }}>
+                    {subAgents.map((sa) => (
+                      <div
+                        key={sa.id}
+                        style={{
+                          background: 'var(--surface-charcoal)',
+                          border: '1px solid var(--gray-dark)',
+                          borderRadius: '8px',
+                          padding: '20px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '12px',
+                          opacity: 0.88,
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(220,38,38,0.15)', border: '1px solid var(--accent-red-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>
+                              🤖
+                            </div>
+                            <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{sa.name}</div>
+                          </div>
+                          <span style={{ fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.08em', color: 'var(--gray-light)' }}>
+                            {t.soon}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--highlight-silver)', borderTop: '1px solid var(--gray-dark)', paddingTop: '10px' }}>
+                          ● {t.monitoringAvatarStatus}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -900,7 +900,7 @@ pub async fn chat_handler(
             you execute it using that agent's persona, skills, and instructions seamlessly! \
             \nUser's Workspace Agents:\n{}\n\
             Protocols (output on its own line when needed):\n\
-            - Create new agent: `[[create_agent:{{\"name\":\"...\",\"role\":\"...\",\"system_prompt\":\"...\",\"skills\":[\"...\"]}}]]`\n\
+            - Create new agent: `[[create_agent:{{\"name\":\"...\",\"role\":\"...\",\"system_prompt\":\"...\",\"skills\":[\"...\"]}}]]` (IMPORTANT: Always write the agent's name, role, system_prompt, and skills in the EXACT SAME LANGUAGE the user used in their message — English if English, French if French, Arabic if Arabic!)\n\
             - Update/maintain an existing agent: `[[update_agent:{{\"agent_id\":\"<id>\",\"name\":\"...\",\"role\":\"...\",\"system_prompt\":\"...\"}}]]`\n\
             - Install skill on an existing agent: `[[install_skill:{{\"agent_id\":\"<id>\",\"skill\":\"...\",\"description\":\"...\"}}]]`\n\
             - Add helper sub-agent to an existing agent: `[[add_helper:{{\"agent_id\":\"<id>\",\"name\":\"...\",\"role\":\"...\",\"system_prompt\":\"...\"}}]]`\n",
