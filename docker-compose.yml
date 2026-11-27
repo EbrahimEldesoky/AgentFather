@@ -1,0 +1,67 @@
+services:
+  hermes-agent:
+    image: nousresearch/hermes-agent:latest
+    container_name: agentfather-hermes
+    restart: unless-stopped
+    networks:
+      - agentfather-net
+    ports:
+      - "127.0.0.1:8090:8090"
+    environment:
+      - HERMES_UID=1000
+      - HERMES_GID=1000
+      - HOME=/opt/data
+      - GATEWAY_ALLOW_ALL_USERS=true
+      - WHATSAPP_ALLOW_ALL_USERS=true
+      - HERMES_WHATSAPP_BRIDGE_TOKEN=${HERMES_WHATSAPP_BRIDGE_TOKEN:-change-me-wa-bridge-token}
+      - API_SERVER_ENABLED=true
+      - API_SERVER_HOST=127.0.0.1
+      - API_SERVER_PORT=8642
+      - API_SERVER_KEY=${HERMES_API_KEY:-change-me-hermes-key}
+      - OPENAI_BASE_URL=http://127.0.0.1:8090/internal/llm/v1
+      - OPENAI_API_KEY=agentfather-internal-key
+      - LLM_MODEL=gemini-3.5-flash-lite
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+    volumes:
+      - ./hermes_data:/opt/data
+    command: ["gateway", "run"]
+
+  backend:
+    build:
+      context: .
+      dockerfile: Backend/Dockerfile
+    image: agentfather-backend:latest
+    container_name: agentfather-backend
+    restart: always
+    network_mode: "service:hermes-agent"
+    depends_on:
+      - hermes-agent
+    environment:
+      - DATABASE_PATH=/app/data/agentfather.db
+      - FRONTEND_DIST=/app/frontend/dist
+      - ASSETS_DIR=/app/assets
+      - AUDIO_DIR=/app/hermes_data/audio
+      - JWT_SECRET=${JWT_SECRET:-change-me-jwt-secret}
+      - GEMINI_KEYS=${GEMINI_KEYS:-}
+      - GROQ_KEYS=${GROQ_KEYS:-}
+      - HERMES_API_URL=http://127.0.0.1:8642/v1/chat/completions
+      - HERMES_API_KEY=${HERMES_API_KEY:-change-me-hermes-key}
+      - WHATSAPP_BRIDGE_URL=http://127.0.0.1:3000
+      - HERMES_WHATSAPP_BRIDGE_TOKEN=${HERMES_WHATSAPP_BRIDGE_TOKEN:-change-me-wa-bridge-token}
+    volumes:
+      - ./backend_data:/app/data
+      - ./hermes_data:/app/hermes_data
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: agentfather-tunnel
+    restart: unless-stopped
+    networks:
+      - agentfather-net
+    depends_on:
+      - hermes-agent
+    command: ["tunnel", "--no-autoupdate", "--url", "http://hermes-agent:8090"]
+
+networks:
+  agentfather-net:
+    driver: bridge

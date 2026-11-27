@@ -1,0 +1,89 @@
+name: Agent Father CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    name: CI (Frontend + Backend)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install, Lint & Build Frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: Backend
+
+      - name: Check & Test Backend
+        working-directory: Backend
+        run: |
+          cargo check --locked
+          cargo test --locked
+
+  cd:
+    name: CD (Deploy to VPS)
+    needs: ci
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup SSH Agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Add VPS host key to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "${{ secrets.VPS_PORT }}" -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy on VPS
+        run: |
+          ssh -p "${{ secrets.VPS_PORT }}" "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" 'bash -s' <<'ENDSSH'
+            set -euo pipefail
+            cd /home/ibrahim/AgentFather
+
+            if [ ! -d .git ]; then
+              git init -b main
+              git remote add origin https://github.com/EbrahimEldesoky/AgentFather.git
+            fi
+
+            git fetch origin main
+            git reset --hard origin/main
+
+            cd frontend
+            npm ci
+            npm run build
+            cd ..
+
+            docker compose build backend
+            docker compose up -d
+
+            sleep 5
+            curl -sf http://127.0.0.1:8090/api/health
+            echo ""
+            echo "✅ Deployed successfully!"
+          ENDSSH
